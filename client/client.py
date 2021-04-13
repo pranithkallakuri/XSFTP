@@ -21,20 +21,14 @@ def recvFile(sock, filename, serveraddress):
         seq_num = int.from_bytes(recvdata[1:5], 'big')
         opcode = int(recvdata[0:1])
         print("opcode = ", opcode, "  seq_num = ", seq_num)
-        if opcode != 3 or seq_num < w_left or seq_num > w_right:
+        if opcode != 3 or seq_num > w_right:
             #do not send ack
             continue
             #return
         left = w_left % window_size
         index = (left + (seq_num-w_left)) % window_size
-        if sr_buffer[index] == None:
+        if sr_buffer[index] == None and seq_num >= w_left:
             sr_buffer[index] = recvdata
-
-        if seq_num == w_left:
-            file1.write(sr_buffer[left][5:])
-            sr_buffer[left] = None
-            w_left += 1
-            w_right += 1
 
         ack = bytearray()
         ack.extend(b'4')
@@ -42,6 +36,13 @@ def recvFile(sock, filename, serveraddress):
         print("ack = ", ack, " | ", "len = ", len(ack), " | seq_num = ", seq_num)
         
         sock.sendto(ack, serveraddress)
+
+        if seq_num == w_left:
+            file1.write(sr_buffer[left][5:])
+            sr_buffer[left] = None
+            w_left += 1
+            w_right += 1
+        
         if len(recvdata) < 512:
             print("Received packet < 512 in size")
             file1.close()

@@ -1,12 +1,27 @@
 import sys
 import socket
+import time
+import threading
+
 
 def sendFile(filename, serversocket, clientaddress):
     print("in sendFile")
+    timeout = 1000 # in milliseconds
     window_size = 4
     seq_num = 0
     w_left = 0
     w_right = window_size-1
+    timer = [None] * window_size
+    sr_buffer = [None] * window_size
+
+    def resend_pkt():
+        for i in range(len(timer)):
+            if time.time()*1000 - timer[i][0] > timeout:
+                left = w_left % window_size
+                index = (left + (timer[i][1]-w_left)) % window_size
+                serversocket.sendto(sr_buffer[index], (clientaddress))
+                timer[i][0] = time.time()*1000
+            
 
     file1 = open(filename, 'r')
     file_end = False
@@ -21,6 +36,8 @@ def sendFile(filename, serversocket, clientaddress):
         print("sendlen = ", sendlen)
         print("buffer >>", buffer)
         serversocket.sendto(buffer, (clientaddress))
+        sr_buffer[pkt] = buffer
+        timer[pkt] = time.time() * 1000, seq_num
         if sendlen < 512:
             file_end = True
             last_pkt = pkt
@@ -32,11 +49,17 @@ def sendFile(filename, serversocket, clientaddress):
 
     while w_left <= w_right:
         print("wleft = ", w_left, "  w_right = ", w_right)
+        resend_thread = threading.Thread(target=resend_pkt)
+        resend_thread.start()
+
         (clientack, addr) = serversocket.recvfrom(5)
         opcode = int(clientack[0:1])
         ack_seq = int.from_bytes(clientack[1:5], 'big')
+
+        resend_thread.join()
         if opcode != 4 or (ack_seq < w_left or ack_seq > w_right):
             continue
+
         if ack_seq == w_left:
             w_left += 1
             if not file_end:
@@ -50,6 +73,10 @@ def sendFile(filename, serversocket, clientaddress):
                 print("sendlen = ", sendlen)
                 print("buffer >>", buffer)
                 serversocket.sendto(buffer, (clientaddress))
+                left = w_left % window_size
+                index = (left + (seq_num-w_left)) % window_size
+                timer[index] = time.time()*1000, seq_num
+                sr_buffer[index] = buffer
                 if sendlen < 512:
                     file_end = True
                 seq_num += 1
@@ -72,5 +99,5 @@ print(len(clientdata))
 # print(clientdata, len(clientdata))
 
 # sendFile("test.txt", serversocket, clientaddress)
-sendFile("test.txt", serversocket, clientaddress)
+sendFile("sample.txt", serversocket, clientaddress)
 serversocket.close()
