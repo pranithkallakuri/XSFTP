@@ -1,4 +1,5 @@
 import socket
+import time
 
 def recvFile(sock, filename, serveraddress):
     print("in recvFile")
@@ -10,8 +11,10 @@ def recvFile(sock, filename, serveraddress):
     w_right = window_size-1
 
     file1 = open(filename, 'wb')
+    recv_ended = False
 
     while True:
+        print("received packet..")
         (recvdata, addr) = sock.recvfrom(512)
         if not recvdata:
             #Do not send ack
@@ -29,7 +32,7 @@ def recvFile(sock, filename, serveraddress):
         index = (left + (seq_num-w_left)) % window_size
         if sr_buffer[index] == None and seq_num >= w_left:
             sr_buffer[index] = recvdata
-
+        
         ack = bytearray()
         ack.extend(b'4')
         ack.extend(seq_num.to_bytes(4, byteorder='big'))
@@ -43,10 +46,11 @@ def recvFile(sock, filename, serveraddress):
             w_left += 1
             w_right += 1
         
-        if len(recvdata) < 512:
+        if len(recvdata) < 512 and recv_ended == False:
             print("Received packet < 512 in size")
+            recv_ended = True
             file1.close()
-            return
+            #return
 
     file1.close()
         
