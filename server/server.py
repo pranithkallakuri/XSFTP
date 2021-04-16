@@ -15,8 +15,8 @@ errorcodes = {
 def accept(serversocket):
     ##########--SERVERPARAMS--#############
     seq_num = 0
-    window_size = 50
-    socket_timeout = 5 #in seconds
+    window_size = 100
+    accept_timeout = 1 #in seconds
     #######################################
     oldtimeout = serversocket.gettimeout()
     print("Waiting for client...")
@@ -51,7 +51,7 @@ def accept(serversocket):
             serversocket.sendto(buffer, (clientaddr))
 
             #Now waiting for ack from client
-            serversocket.settimeout(socket_timeout)
+            serversocket.settimeout(accept_timeout)
             try:
                 clientack, addr = serversocket.recvfrom(5)
                 opcode = int(clientack[0:1])
@@ -84,7 +84,7 @@ def sendFile(filename, serversocket, acceptparams):
     print("in sendFile")
 
     ##########-ACK TIMEOUT-###########
-    timeout = 250       # in milliseconds
+    timeout = 100       # in milliseconds
     ########################################
 
     print(acceptparams)
@@ -126,8 +126,12 @@ def sendFile(filename, serversocket, acceptparams):
             try:
                 (clientack, addr) = serversocket.recvfrom(5)
             except socket.timeout:
-                print("Client did not respond.. Sending error packet and closing connection.")
-                #Send error packet
+                if w_left == w_right+1:
+                    print("File sent successfully")
+                    print("Closing connection...")
+                else:
+                    print("Client did not respond.. Sending error packet and closing connection.")
+                    #Send error packet
                 daemon_returned = True
                 ack_received = True
                 return
@@ -143,11 +147,6 @@ def sendFile(filename, serversocket, acceptparams):
             ack_recv_n[index] = True
             ack_received = True
             print("Made ack_true")
-            if ack_seq == final_ack_seq:  #This means last packet has been acked
-                daemon_returned = True
-                print("Recevied final ack, returning listen_daemon")
-                print("ack_received_in_listen_daemon = ", ack_received)
-                return
             
 
             
@@ -181,7 +180,7 @@ def sendFile(filename, serversocket, acceptparams):
 
     listen_daemon = threading.Thread(target=ack_listen)
     listen_daemon.start()
-    while not daemon_returned:
+    while w_left <= w_right:
         print("wleft = ", w_left, "  w_right = ", w_right)
         # resend_thread = threading.Thread(target=resend_pkt)
         # resend_thread.start()
@@ -193,9 +192,9 @@ def sendFile(filename, serversocket, acceptparams):
             #print("ack_received = ", ack_received)
             for i in range(min(len(timer), w_right+1)):
                 #print("unacked_time[", i, "] = ", time.time()*1000 - timer[i][0])#'''*1000 - timer[i][0]'''
-                if time.time()*1000 - timer[i][0] > timeout:
-                    left = w_left % window_size
-                    index = (left + (timer[i][1]-w_left)) % window_size
+                left = w_left % window_size
+                index = (left + (timer[i][1]-w_left)) % window_size
+                if time.time()*1000 - timer[i][0] > timeout and not ack_recv_n[index]:
                     print("resend... seq_num =", timer[i][1])
                     serversocket.sendto(sr_buffer[index], (clientaddress))
                     timer[i][0] = time.time()*1000
@@ -204,15 +203,15 @@ def sendFile(filename, serversocket, acceptparams):
 
         # ack_received = True
         left = w_left % window_size
-        print("ack_recv_n[left] = ", ack_recv_n[left])
+        #print("ack_recv_n[left] = ", ack_recv_n[left])
         while ack_recv_n[left]:
             print("in send next loop")
             ack_recv_n[left] = False
             #time.sleep(0.5)
             w_left += 1
             left = w_left % window_size
-            print("left = ", left)
-            print("ack_recv_n = ", ack_recv_n)
+            #print("left = ", left)
+            #print("ack_recv_n = ", ack_recv_n)
             if not file_end:
                 w_right += 1
                 buffer = bytearray()
@@ -223,7 +222,7 @@ def sendFile(filename, serversocket, acceptparams):
                 sendlen = len(buffer)
                 # print("sendlen = ", sendlen)
                 # print("buffer >>", buffer)
-                print("send... seq_num =", seq_num)
+                #print("send... seq_num =", seq_num)
                 serversocket.sendto(buffer, (clientaddress))
                 # left = w_left % window_size
                 index = (left + (seq_num-w_left)) % window_size
@@ -263,7 +262,7 @@ print("Server started at %s; listening at port %d;" % (serversocket.getsockname(
 # sendFile("test.txt", serversocket, clientaddress)
 
 # The connection should close after how much inactivity from the server ?
-disconnect_timeout = 10 # in seconds
+disconnect_timeout = 5 # in seconds
 serversocket.settimeout(disconnect_timeout)
 
 filename, acceptparams = accept(serversocket)
