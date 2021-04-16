@@ -146,7 +146,7 @@ def recvFile(sock, filename, serveraddress):
 def accept(serversocket):
     ##########--SERVERPARAMS--#############
     seq_num = 0
-    window_size = 100
+    window_size = 20
     accept_timeout = 1 #in seconds
     #######################################
     oldtimeout = serversocket.gettimeout()
@@ -217,7 +217,7 @@ def sendFile(filename, serversocket, acceptparams):
     print("in sendFile")
 
     ##########-ACK TIMEOUT-###########
-    timeout = 100       # in milliseconds
+    timeout = 250      # in milliseconds
     ########################################
 
     print(acceptparams)
