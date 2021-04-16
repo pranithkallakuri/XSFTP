@@ -10,6 +10,12 @@ errorcodes = {
 }
 
 def connect(sock, filename, serveraddress):
+    connect_timeout = 1
+
+
+    oldtimeout = sock.gettimeout()
+    sock.settimeout(connect_timeout)
+    
     buffer = bytearray()
     buffer.extend(b'1')
     if len(filename) > 510:
@@ -53,7 +59,7 @@ def connect(sock, filename, serveraddress):
         except socket.timeout:
             print("Connect request timed out / was lost. Resending request...")
     
-    
+    sock.settimeout(oldtimeout)
     print("Connected to Server!")
     return seq_num, recv_window
 
