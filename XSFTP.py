@@ -2,6 +2,7 @@ import os
 import socket
 import time
 import threading
+import random
 
 errorcodes = {
     0 : "NotDefined",
@@ -11,12 +12,10 @@ errorcodes = {
     4 : "IncorrectlyFormedPacket"
 }
 
-def connect(sock, filename, serveraddress):
-    connect_timeout = 1
-
+def connect(sock, filename, serveraddress, connect_timeout=1):
+    #connect_timeout = 1 #in seconds
 
     oldtimeout = sock.gettimeout()
-    sock.settimeout(connect_timeout)
     
     buffer = bytearray()
     buffer.extend(b'1')
@@ -31,13 +30,14 @@ def connect(sock, filename, serveraddress):
     recv_window = None
     print("connecting...")
     while True:
+        sock.settimeout(connect_timeout)
         sent = sock.sendto(buffer, serveraddress)
         try:
             recvdata, addr = sock.recvfrom(9)
             if not recvdata:
                 return None
             opcode = int(recvdata[0:1])
-            print("opcode = ", opcode)
+            #print("opcode = ", opcode)
             if opcode == 5:
                 err = int.from_bytes(recvdata[1:5], 'big')
                 print("ErrorFromServer:", errorcodes[err])
@@ -52,14 +52,20 @@ def connect(sock, filename, serveraddress):
                 ack.extend(b'4')
                 ack.extend(seq_num.to_bytes(4, byteorder='big'))
                 sent = sock.sendto(ack, serveraddress)
+                sock.settimeout(oldtimeout)
                 ackackdata, addr = sock.recvfrom(512)
                 opcode = int(ackackdata[0:1])
                 if opcode == 3:
                     break
+                elif opcode == 5:
+                    err = int.from_bytes(ackackdata[1:5], 'big')
+                    print("ErrorFromServer:", errorcodes[err])
+                    return None
                 else:
-                    continue
+                    print("Server sent incorrect response. Resending request...")
         except socket.timeout:
-            print("Connect request timed out / was lost. Resending request...")
+            print("Connect request timed out / was lost /" + 
+                    "Server did not respond. Resending request...")
     
     sock.settimeout(oldtimeout)
     print("Connected to Server!")
@@ -67,9 +73,9 @@ def connect(sock, filename, serveraddress):
 
 
 
-def recvFile(sock, filename, serveraddress):
-    socket_timeout = 5 # in seconds
-    print("in recvFile")
+def recvFile(sock, filename, serveraddress, socket_timeout=5):
+    #socket_timeout = 5 # in seconds
+    #print("in recvFile")
     sock.settimeout(socket_timeout)
 
     connect_data = connect(sock, filename, serveraddress)
@@ -87,14 +93,17 @@ def recvFile(sock, filename, serveraddress):
     recv_ended = False
 
     while True:
-        print("received packet..")
+        #print("received packet..")
         # if recv_ended:
         #     print("Client will timeout in 5 seconds")
         try:
             (recvdata, addr) = sock.recvfrom(512)
         except socket.timeout:
-            print("File received succesfully")
-            print("Socket Timed out")
+            if recv_ended:
+                print("File received succesfully")
+            else:
+                print("Socket Timed out")
+                print("Incomplete file written")
             break
         #print("recvdata = ", recvdata)
         if not recvdata:
@@ -102,14 +111,14 @@ def recvFile(sock, filename, serveraddress):
             continue
             #return
 
-        print("Data received from server = ", recvdata)
+        #print("Data received from server = ", recvdata)
 
         seq_num = int.from_bytes(recvdata[1:5], 'big')
         opcode = int(recvdata[0:1])
-        print("opcode = ", opcode, "  seq_num = ", seq_num)
+        #print("opcode = ", opcode, "  seq_num = ", seq_num)
         print("w_left = ", w_left, "  w_right = ", w_right)
         if opcode != 3 or seq_num > w_right:
-            print("seq_num too big")
+            #print("seq_num too big")
             continue
             #return
         left = w_left % window_size
@@ -127,7 +136,7 @@ def recvFile(sock, filename, serveraddress):
 
         while acked_packet[left]:
             file1.write(sr_buffer[left][5:])
-            print("this is written into file = ", sr_buffer[left][5:])
+            #print("this is written into file = ", sr_buffer[left][5:])
             sr_buffer[left] = None
             acked_packet[left] = False
             w_left += 1
@@ -143,11 +152,10 @@ def recvFile(sock, filename, serveraddress):
     print("Done")
 
 
-def accept(serversocket):
+def accept(serversocket, window_size=20, accept_timeout=1):
     ##########--SERVERPARAMS--#############
-    seq_num = 0
-    window_size = 20
-    accept_timeout = 1 #in seconds
+    #seq_num = randint(1000, 2**30-1)
+    #accept_timeout = 1 #in seconds
     #######################################
     oldtimeout = serversocket.gettimeout()
     print("Waiting for client...")
@@ -175,6 +183,7 @@ def accept(serversocket):
                 continue
 
             #Sending connection assign packet
+            seq_num = random.randint(1000, 2**30-1)
             buffer = bytearray()
             buffer.extend(b'2')
             buffer.extend(seq_num.to_bytes(4, byteorder='big'))
@@ -202,10 +211,10 @@ def accept(serversocket):
         except socket.timeout:
             break
     
-    print("oldtimeout = ", oldtimeout)
+    #print("oldtimeout = ", oldtimeout)
     serversocket.settimeout(oldtimeout)
     print('Client found!')
-    return (filename, (clientaddr, seq_num, window_size))
+    return (filename, (clientaddr, window_size))
 
 
 
@@ -213,16 +222,16 @@ def accept(serversocket):
 
 
 
-def sendFile(filename, serversocket, acceptparams):
-    print("in sendFile")
-
+def sendFile(filename, serversocket, acceptparams, disconnect_timeout=5, ack_timeout=250):
+    #print("in sendFile")
+    serversocket.settimeout(disconnect_timeout)
     ##########-ACK TIMEOUT-###########
-    timeout = 250      # in milliseconds
+    timeout = ack_timeout      # in milliseconds
     ########################################
 
-    print(acceptparams)
-    window_size = acceptparams[2]
-    seq_num = acceptparams[1]
+    #print(acceptparams)
+    window_size = acceptparams[1]
+    seq_num = 0
     clientaddress = acceptparams[0]
 
     w_left = 0
@@ -255,7 +264,7 @@ def sendFile(filename, serversocket, acceptparams):
         global ack_received
         global daemon_returned
         while True:
-            print("Waiting for ack...")
+            #print("Waiting for ack...")
             try:
                 (clientack, addr) = serversocket.recvfrom(5)
             except socket.timeout:
@@ -270,16 +279,16 @@ def sendFile(filename, serversocket, acceptparams):
                 return
             opcode = int(clientack[0:1])
             ack_seq = int.from_bytes(clientack[1:5], 'big')
-            print("received ack with opcode, seq_num = ", opcode, ack_seq)
+            #print("received ack with opcode, seq_num = ", opcode, ack_seq)
             left = w_left % window_size
             index = (left + (ack_seq-w_left)) % window_size
             if opcode != 4 or (ack_seq < w_left or ack_seq > w_right) or ack_recv_n[index]:
-                print("NOT making ack_true")
+                #print("NOT making ack_true")
                 continue
-            print("in_ack_listen ack_recv_n = ", ack_recv_n)
+            #print("in_ack_listen ack_recv_n = ", ack_recv_n)
             ack_recv_n[index] = True
             ack_received = True
-            print("Made ack_true")
+            #print("Made ack_true")
             
 
             
@@ -295,13 +304,13 @@ def sendFile(filename, serversocket, acceptparams):
         sendlen = len(buffer)
         # print("sendlen = ", sendlen)
         # print("buffer >>", buffer)
-        print("send... seq_num =", seq_num)
+        #print("send... seq_num =", seq_num)
         serversocket.sendto(buffer, (clientaddress))
         sr_buffer[pkt] = buffer
         timer[pkt] = list((time.time() * 1000, seq_num))
         ack_recv_n[pkt] = False
         if sendlen < 512:
-            print("!!!!!!!sent last packet!!!!!!!!")
+            print("Sent last packet!")
             file_end = True
             last_pkt = pkt
             final_ack_seq = seq_num
@@ -338,7 +347,7 @@ def sendFile(filename, serversocket, acceptparams):
         left = w_left % window_size
         #print("ack_recv_n[left] = ", ack_recv_n[left])
         while ack_recv_n[left]:
-            print("in send next loop")
+            #print("in send next loop")
             ack_recv_n[left] = False
             #time.sleep(0.5)
             w_left += 1
@@ -363,15 +372,15 @@ def sendFile(filename, serversocket, acceptparams):
                 sr_buffer[index] = buffer
                 ack_recv_n[index] = False
                 if sendlen < 512:
-                    print("!!!!!!!sent last packet!!!!!!!!")
+                    print("Sent last packet!")
                     final_ack_seq = seq_num
                     file_end = True
                 seq_num += 1
             
 
-    print("Reached before join")
+    #print("Reached before join")
     listen_daemon.join()
-    print("do you even get here")
+    #print("do you even get here")
     if final_ack_seq == -1:
         print("Lost connection to client... Incomplete send... Sending error packet...")
         # Send error packet

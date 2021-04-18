@@ -11,6 +11,6 @@ sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 serveraddress = ('localhost', 10000)
 
-XSFTP.recvFile(sock, "test.txt", serveraddress)
+XSFTP.recvFile(sock, "other.c", serveraddress)
 
 sock.close()
